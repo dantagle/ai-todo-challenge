@@ -6,7 +6,10 @@ export async function GET(req: Request) {
   const user_identifier = searchParams.get("user_identifier");
 
   if (!user_identifier) {
-    return NextResponse.json({ error: "user_identifier is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "user_identifier is required" },
+      { status: 400 }
+    );
   }
 
   const { data, error } = await supabaseServer
@@ -31,9 +34,38 @@ export async function POST(req: Request) {
     );
   }
 
+  const n8nUrl = process.env.N8N_ENHANCE_WEBHOOK_URL;
+
+  let enhancedTitle = title;
+  let steps: any[] | null = null;
+
+  if (n8nUrl) {
+    try {
+      const r = await fetch(n8nUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+
+      const j = await r.json();
+
+      // n8n devuelve array con 1 item: [{ enhanced_title, steps }]
+      const first = Array.isArray(j) ? j[0] : j;
+
+      if (r.ok && typeof first?.enhanced_title === "string") {
+        enhancedTitle = first.enhanced_title;
+      }
+      if (r.ok && Array.isArray(first?.steps)) {
+        steps = first.steps;
+      }
+    } catch {
+      // fallback silencioso
+    }
+  }
+
   const { data, error } = await supabaseServer
     .from("tasks")
-    .insert([{ user_identifier, title, completed: false }])
+    .insert([{ user_identifier, title: enhancedTitle, steps, completed: false }])
     .select("*")
     .single();
 

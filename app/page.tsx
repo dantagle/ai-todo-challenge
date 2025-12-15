@@ -12,6 +12,12 @@ type Task = {
   updated_at: string;
 };
 
+async function safeJson(res: Response) {
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  return { data, text };
+}
+
 export default function Home() {
   const [userIdentifier, setUserIdentifier] = useState("daniel@demo.com");
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -25,11 +31,16 @@ export default function Home() {
   async function loadTasks() {
     if (!canLoad) return;
     setLoading(true);
+
     try {
-      const res = await fetch(`/api/tasks?user_identifier=${encodeURIComponent(userIdentifier.trim())}`);
-      const data = await res.json();
+      const res = await fetch(
+        `/api/tasks?user_identifier=${encodeURIComponent(userIdentifier.trim())}`
+      );
+
+      const { data } = await safeJson(res);
+
       if (!res.ok) throw new Error(data?.error ?? "Failed to load tasks");
-      setTasks(data.tasks ?? []);
+      setTasks(data?.tasks ?? []);
     } finally {
       setLoading(false);
     }
@@ -42,20 +53,26 @@ export default function Home() {
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
+
     const title = newTitle.trim();
     if (!title || !canLoad) return;
 
     setSavingId("new");
+
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_identifier: userIdentifier.trim(), title }),
       });
-      const data = await res.json();
+
+      const { data } = await safeJson(res);
+
       if (!res.ok) throw new Error(data?.error ?? "Failed to add task");
+
       setNewTitle("");
-      setTasks((prev) => [data.task, ...prev]);
+      if (data?.task) setTasks((prev) => [data.task, ...prev]);
+      else await loadTasks(); // fallback si no vino task
     } finally {
       setSavingId(null);
     }
@@ -63,15 +80,20 @@ export default function Home() {
 
   async function toggleComplete(task: Task) {
     setSavingId(task.id);
+
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ completed: !task.completed }),
       });
-      const data = await res.json();
+
+      const { data } = await safeJson(res);
+
       if (!res.ok) throw new Error(data?.error ?? "Failed to update task");
-      setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task : t)));
+
+      if (data?.task) setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task : t)));
+      else await loadTasks();
     } finally {
       setSavingId(null);
     }
@@ -94,16 +116,21 @@ export default function Home() {
     if (!title) return;
 
     setSavingId(task.id);
+
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       });
-      const data = await res.json();
+
+      const { data } = await safeJson(res);
+
       if (!res.ok) throw new Error(data?.error ?? "Failed to update title");
 
-      setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task : t)));
+      if (data?.task) setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task : t)));
+      else await loadTasks();
+
       cancelEdit(task.id);
     } finally {
       setSavingId(null);
@@ -111,9 +138,20 @@ export default function Home() {
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "40px auto", padding: "0 16px", fontFamily: "system-ui, sans-serif" }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>To-Do List (Supabase)</h1>
-      <p style={{ marginTop: 0, color: "#555" }}>Add, edit, and complete tasks. Data persists via Supabase.</p>
+    <main
+      style={{
+        maxWidth: 720,
+        margin: "40px auto",
+        padding: "0 16px",
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
+        To-Do List (Supabase)
+      </h1>
+      <p style={{ marginTop: 0, color: "#555" }}>
+        Add, edit, and complete tasks. Data persists via Supabase.
+      </p>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 16 }}>
         <label style={{ fontSize: 14, color: "#333" }}>User Identifier:</label>
@@ -126,7 +164,12 @@ export default function Home() {
         <button
           onClick={loadTasks}
           disabled={!canLoad || loading}
-          style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #ddd", cursor: "pointer" }}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            border: "1px solid #ddd",
+            cursor: "pointer",
+          }}
         >
           {loading ? "Loading..." : "Load"}
         </button>
@@ -199,10 +242,18 @@ export default function Home() {
                       ) : (
                         <input
                           value={editing[task.id]}
-                          onChange={(e) => setEditing((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                          style={{ width: "100%", padding: 10, border: "1px solid #ddd", borderRadius: 10 }}
+                          onChange={(e) =>
+                            setEditing((prev) => ({ ...prev, [task.id]: e.target.value }))
+                          }
+                          style={{
+                            width: "100%",
+                            padding: 10,
+                            border: "1px solid #ddd",
+                            borderRadius: 10,
+                          }}
                         />
                       )}
+
                       <div style={{ fontSize: 12, color: "#777", marginTop: 4 }}>
                         {new Date(task.created_at).toLocaleString()}
                       </div>
@@ -213,7 +264,12 @@ export default function Home() {
                     {!isEditing ? (
                       <button
                         onClick={() => startEdit(task)}
-                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", cursor: "pointer" }}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: "1px solid #ddd",
+                          cursor: "pointer",
+                        }}
                       >
                         Edit
                       </button>
@@ -232,9 +288,15 @@ export default function Home() {
                         >
                           {savingId === task.id ? "Saving..." : "Save"}
                         </button>
+
                         <button
                           onClick={() => cancelEdit(task.id)}
-                          style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", cursor: "pointer" }}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            border: "1px solid #ddd",
+                            cursor: "pointer",
+                          }}
                         >
                           Cancel
                         </button>
