@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 export async function PATCH(req: Request) {
-  // Safer than params in some dev setups
   const url = new URL(req.url);
-  const id = url.pathname.split("/").pop(); // last segment
+  const id = url.pathname.split("/").pop();
 
   if (!id) {
     return NextResponse.json({ error: "Missing task id" }, { status: 400 });
@@ -18,7 +17,10 @@ export async function PATCH(req: Request) {
   if (body?.steps !== undefined) updates.steps = body.steps;
 
   if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+    return NextResponse.json(
+      { error: "No valid fields to update" },
+      { status: 400 }
+    );
   }
 
   const { data, error } = await supabaseServer
