@@ -6,7 +6,7 @@ type Task = {
   id: string;
   user_identifier: string;
   title: string;
-  steps: any | null;
+  steps: string[] | null;
   completed: boolean;
   created_at: string;
   updated_at: string;
@@ -26,6 +26,9 @@ export default function Home() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Record<string, string>>({});
 
+  // UI-only: show/hide suggested steps per task
+  const [showSteps, setShowSteps] = useState<Record<string, boolean>>({});
+
   const canLoad = useMemo(() => userIdentifier.trim().length > 0, [userIdentifier]);
 
   async function loadTasks() {
@@ -40,7 +43,7 @@ export default function Home() {
       const { data } = await safeJson(res);
 
       if (!res.ok) throw new Error(data?.error ?? "Failed to load tasks");
-      setTasks(data?.tasks ?? []);
+      setTasks((data?.tasks ?? []) as Task[]);
     } finally {
       setLoading(false);
     }
@@ -50,6 +53,20 @@ export default function Home() {
     loadTasks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // set default showSteps when tasks arrive (only if not set yet)
+  useEffect(() => {
+    setShowSteps((prev) => {
+      const next = { ...prev };
+      for (const t of tasks) {
+        if (next[t.id] === undefined) {
+          // default: show if it has steps and task isn't completed
+          next[t.id] = Array.isArray(t.steps) && t.steps.length > 0 && !t.completed;
+        }
+      }
+      return next;
+    });
+  }, [tasks]);
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
@@ -71,8 +88,11 @@ export default function Home() {
       if (!res.ok) throw new Error(data?.error ?? "Failed to add task");
 
       setNewTitle("");
-      if (data?.task) setTasks((prev) => [data.task, ...prev]);
-      else await loadTasks(); // fallback si no vino task
+      if (data?.task) {
+        setTasks((prev) => [data.task as Task, ...prev]);
+      } else {
+        await loadTasks();
+      }
     } finally {
       setSavingId(null);
     }
@@ -92,8 +112,11 @@ export default function Home() {
 
       if (!res.ok) throw new Error(data?.error ?? "Failed to update task");
 
-      if (data?.task) setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task : t)));
-      else await loadTasks();
+      if (data?.task) {
+        setTasks((prev) => prev.map((t) => (t.id === task.id ? (data.task as Task) : t)));
+      } else {
+        await loadTasks();
+      }
     } finally {
       setSavingId(null);
     }
@@ -128,13 +151,44 @@ export default function Home() {
 
       if (!res.ok) throw new Error(data?.error ?? "Failed to update title");
 
-      if (data?.task) setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task : t)));
-      else await loadTasks();
+      if (data?.task) {
+        setTasks((prev) => prev.map((t) => (t.id === task.id ? (data.task as Task) : t)));
+      } else {
+        await loadTasks();
+      }
 
       cancelEdit(task.id);
     } finally {
       setSavingId(null);
     }
+  }
+
+  async function removeSteps(task: Task) {
+    setSavingId(task.id);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps: null }),
+      });
+
+      const { data } = await safeJson(res);
+      if (!res.ok) throw new Error(data?.error ?? "Failed to remove steps");
+
+      if (data?.task) {
+        setTasks((prev) => prev.map((t) => (t.id === task.id ? (data.task as Task) : t)));
+      } else {
+        await loadTasks();
+      }
+
+      setShowSteps((prev) => ({ ...prev, [task.id]: false }));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  function toggleStepsUI(taskId: string) {
+    setShowSteps((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
   }
 
   return (
@@ -201,47 +255,55 @@ export default function Home() {
         {tasks.length === 0 ? (
           <p style={{ color: "#666" }}>No tasks yet. Add one above.</p>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
             {tasks.map((task) => {
               const isEditing = editing[task.id] !== undefined;
+              const hasSteps = Array.isArray(task.steps) && task.steps.length > 0;
+              const isSaving = savingId === task.id;
+              const isStepsVisible = !!showSteps[task.id];
 
               return (
                 <li
                   key={task.id}
                   style={{
                     border: "1px solid #eee",
-                    borderRadius: 14,
-                    padding: 14,
+                    borderRadius: 16,
+                    padding: 16,
                     display: "flex",
-                    gap: 12,
-                    alignItems: "center",
+                    gap: 14,
+                    alignItems: "flex-start",
                     justifyContent: "space-between",
                   }}
                 >
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flex: 1 }}>
+                  {/* LEFT: checkbox + content */}
+                  <div style={{ display: "flex", gap: 12, flex: 1, minWidth: 0 }}>
                     <input
                       type="checkbox"
                       checked={task.completed}
                       onChange={() => toggleComplete(task)}
-                      disabled={savingId === task.id}
-                      style={{ width: 18, height: 18 }}
+                      disabled={isSaving}
+                      style={{ width: 18, height: 18, marginTop: 3 }}
+                      aria-label="Complete task"
                     />
 
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* Title row */}
                       {!isEditing ? (
                         <div
                           style={{
-                            fontSize: 16,
-                            fontWeight: 600,
+                            fontSize: 18,
+                            fontWeight: 700,
+                            lineHeight: 1.25,
                             textDecoration: task.completed ? "line-through" : "none",
                             color: task.completed ? "#777" : "#111",
+                            wordBreak: "break-word",
                           }}
                         >
                           {task.title}
                         </div>
                       ) : (
                         <input
-                          value={editing[task.id]}
+                          value={editing[task.id] ?? ""}
                           onChange={(e) =>
                             setEditing((prev) => ({ ...prev, [task.id]: e.target.value }))
                           }
@@ -250,25 +312,108 @@ export default function Home() {
                             padding: 10,
                             border: "1px solid #ddd",
                             borderRadius: 10,
+                            fontSize: 16,
                           }}
                         />
                       )}
 
-                      <div style={{ fontSize: 12, color: "#777", marginTop: 4 }}>
+                      {/* Suggested steps */}
+                      {hasSteps && !isEditing && (
+                        <div style={{ marginTop: 10 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: "#444",
+                                background: "#f5f5f5",
+                                border: "1px solid #e9e9e9",
+                                padding: "4px 8px",
+                                borderRadius: 999,
+                              }}
+                            >
+                              Suggested steps
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() => toggleStepsUI(task.id)}
+                              style={{
+                                fontSize: 12,
+                                padding: "4px 8px",
+                                borderRadius: 999,
+                                border: "1px solid #ddd",
+                                cursor: "pointer",
+                                background: "white",
+                              }}
+                            >
+                              {isStepsVisible ? "Hide" : "Show"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => removeSteps(task)}
+                              disabled={isSaving}
+                              style={{
+                                fontSize: 12,
+                                padding: "4px 10px",
+                                borderRadius: 999,
+                                border: "1px solid #ddd",
+                                cursor: isSaving ? "not-allowed" : "pointer",
+                                background: "white",
+                                fontWeight: 700,
+                              }}
+                              title="Removes steps from the DB (PATCH steps:null)"
+                            >
+                              {isSaving ? "…" : "Remove"}
+                            </button>
+                          </div>
+
+                          {isStepsVisible && (
+                            <ul
+                              style={{
+                                margin: "10px 0 0 0",
+                                paddingLeft: 18,
+                                color: "#333",
+                                fontSize: 14,
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              {(task.steps ?? []).slice(0, 10).map((s, i) => (
+                                <li key={i} style={{ marginBottom: 6 }}>
+                                  {s}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ fontSize: 12, color: "#777", marginTop: 10 }}>
                         {new Date(task.created_at).toLocaleString()}
                       </div>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 8 }}>
+                  {/* RIGHT: actions */}
+                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                     {!isEditing ? (
                       <button
+                        type="button"
                         onClick={() => startEdit(task)}
                         style={{
                           padding: "10px 12px",
-                          borderRadius: 10,
+                          borderRadius: 12,
                           border: "1px solid #ddd",
                           cursor: "pointer",
+                          background: "white",
                         }}
                       >
                         Edit
@@ -276,26 +421,30 @@ export default function Home() {
                     ) : (
                       <>
                         <button
+                          type="button"
                           onClick={() => saveEdit(task)}
-                          disabled={savingId === task.id}
+                          disabled={isSaving}
                           style={{
                             padding: "10px 12px",
-                            borderRadius: 10,
+                            borderRadius: 12,
                             border: "1px solid #ddd",
-                            cursor: "pointer",
-                            fontWeight: 600,
+                            cursor: isSaving ? "not-allowed" : "pointer",
+                            fontWeight: 700,
+                            background: "white",
                           }}
                         >
-                          {savingId === task.id ? "Saving..." : "Save"}
+                          {isSaving ? "Saving…" : "Save"}
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => cancelEdit(task.id)}
                           style={{
                             padding: "10px 12px",
-                            borderRadius: 10,
+                            borderRadius: 12,
                             border: "1px solid #ddd",
                             cursor: "pointer",
+                            background: "white",
                           }}
                         >
                           Cancel
