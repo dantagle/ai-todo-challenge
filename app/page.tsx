@@ -586,7 +586,7 @@ export default function Home() {
           <input
             value={chatMessage}
             onChange={(e) => setChatMessage(e.target.value)}
-            placeholder="#to-do comprar leche"
+            placeholder="#to-do buy milk"
             style={{ flex: 1, padding: 12, borderRadius: 12, ...inputStyle }}
           />
           <button
