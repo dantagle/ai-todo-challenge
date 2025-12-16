@@ -28,6 +28,10 @@ export default function Home() {
 
   // UI-only: show/hide suggested steps per task
   const [showSteps, setShowSteps] = useState<Record<string, boolean>>({});
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessage, setChatMessage] = useState("");
+  const [sendingChat, setSendingChat] = useState(false);
+  const [chatReply, setChatReply] = useState<string | null>(null);
 
   const canLoad = useMemo(() => userIdentifier.trim().length > 0, [userIdentifier]);
 
@@ -95,6 +99,36 @@ export default function Home() {
       }
     } finally {
       setSavingId(null);
+    }
+  }
+
+  async function sendChat() {
+    const msg = chatMessage.trim();
+    if (!msg || !canLoad) return;
+
+    setSendingChat(true);
+    setChatReply(null);
+
+    try {
+      const res = await fetch("/api/inbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel: "whatsapp",
+          from: userIdentifier.trim(),
+          message: msg,
+        }),
+      });
+
+      const text = await res.text();
+      setChatReply(text || "(empty response)");
+
+      if (res.ok) {
+        setChatMessage("");
+        await loadTasks();
+      }
+    } finally {
+      setSendingChat(false);
     }
   }
 
@@ -191,29 +225,59 @@ export default function Home() {
     setShowSteps((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
   }
 
+  // Small reusable style helpers (tokenized)
+  const cardStyle: React.CSSProperties = {
+    background: "var(--card)",
+    border: "1px solid var(--border)",
+    boxShadow: "var(--shadow)",
+  };
+
+  const inputStyle: React.CSSProperties = {
+    background: "var(--input-bg)",
+    color: "var(--foreground)",
+    border: "1px solid var(--border)",
+  };
+
+  const buttonStyle: React.CSSProperties = {
+    background: "var(--card)",
+    color: "var(--foreground)",
+    border: "1px solid var(--border)",
+    cursor: "pointer",
+  };
+
+  const chipStyle: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "var(--foreground)",
+    background: "var(--chip)",
+    border: "1px solid var(--border)",
+    padding: "4px 8px",
+    borderRadius: 999,
+  };
+
   return (
     <main
       style={{
-        maxWidth: 720,
+        maxWidth: 760,
         margin: "40px auto",
         padding: "0 16px",
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>
         To-Do List (Supabase)
       </h1>
-      <p style={{ marginTop: 0, color: "#555" }}>
+      <p style={{ marginTop: 0, color: "var(--muted)" }}>
         Add, edit, and complete tasks. Data persists via Supabase.
       </p>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 16 }}>
-        <label style={{ fontSize: 14, color: "#333" }}>User Identifier:</label>
+        <label style={{ fontSize: 14, color: "var(--muted)" }}>User Identifier:</label>
         <input
           value={userIdentifier}
           onChange={(e) => setUserIdentifier(e.target.value)}
           placeholder="name or email"
-          style={{ flex: 1, padding: 10, border: "1px solid #ddd", borderRadius: 10 }}
+          style={{ flex: 1, padding: 10, borderRadius: 10, ...inputStyle }}
         />
         <button
           onClick={loadTasks}
@@ -221,8 +285,9 @@ export default function Home() {
           style={{
             padding: "10px 14px",
             borderRadius: 10,
-            border: "1px solid #ddd",
-            cursor: "pointer",
+            ...buttonStyle,
+            cursor: !canLoad || loading ? "not-allowed" : "pointer",
+            opacity: !canLoad || loading ? 0.7 : 1,
           }}
         >
           {loading ? "Loading..." : "Load"}
@@ -234,7 +299,7 @@ export default function Home() {
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Add a task..."
-          style={{ flex: 1, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}
+          style={{ flex: 1, padding: 12, borderRadius: 12, ...inputStyle }}
         />
         <button
           type="submit"
@@ -242,9 +307,11 @@ export default function Home() {
           style={{
             padding: "12px 16px",
             borderRadius: 12,
-            border: "1px solid #ddd",
-            cursor: "pointer",
-            fontWeight: 600,
+            fontWeight: 800,
+            ...buttonStyle,
+            cursor:
+              !newTitle.trim() || !canLoad || savingId === "new" ? "not-allowed" : "pointer",
+            opacity: !newTitle.trim() || !canLoad || savingId === "new" ? 0.7 : 1,
           }}
         >
           {savingId === "new" ? "Adding..." : "Add"}
@@ -253,7 +320,7 @@ export default function Home() {
 
       <div style={{ marginTop: 20 }}>
         {tasks.length === 0 ? (
-          <p style={{ color: "#666" }}>No tasks yet. Add one above.</p>
+          <p style={{ color: "var(--muted)" }}>No tasks yet. Add one above.</p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
             {tasks.map((task) => {
@@ -266,7 +333,7 @@ export default function Home() {
                 <li
                   key={task.id}
                   style={{
-                    border: "1px solid #eee",
+                    ...cardStyle,
                     borderRadius: 16,
                     padding: 16,
                     display: "flex",
@@ -292,10 +359,10 @@ export default function Home() {
                         <div
                           style={{
                             fontSize: 18,
-                            fontWeight: 700,
+                            fontWeight: 800,
                             lineHeight: 1.25,
                             textDecoration: task.completed ? "line-through" : "none",
-                            color: task.completed ? "#777" : "#111",
+                            color: task.completed ? "var(--muted2)" : "var(--foreground)",
                             wordBreak: "break-word",
                           }}
                         >
@@ -310,9 +377,9 @@ export default function Home() {
                           style={{
                             width: "100%",
                             padding: 10,
-                            border: "1px solid #ddd",
                             borderRadius: 10,
                             fontSize: 16,
+                            ...inputStyle,
                           }}
                         />
                       )}
@@ -328,30 +395,15 @@ export default function Home() {
                               flexWrap: "wrap",
                             }}
                           >
-                            <span
-                              style={{
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: "#444",
-                                background: "#f5f5f5",
-                                border: "1px solid #e9e9e9",
-                                padding: "4px 8px",
-                                borderRadius: 999,
-                              }}
-                            >
-                              Suggested steps
-                            </span>
+                            <span style={chipStyle}>Suggested steps</span>
 
                             <button
                               type="button"
                               onClick={() => toggleStepsUI(task.id)}
                               style={{
-                                fontSize: 12,
-                                padding: "4px 8px",
-                                borderRadius: 999,
-                                border: "1px solid #ddd",
+                                ...chipStyle,
+                                fontWeight: 800,
                                 cursor: "pointer",
-                                background: "white",
                               }}
                             >
                               {isStepsVisible ? "Hide" : "Show"}
@@ -362,13 +414,10 @@ export default function Home() {
                               onClick={() => removeSteps(task)}
                               disabled={isSaving}
                               style={{
-                                fontSize: 12,
-                                padding: "4px 10px",
-                                borderRadius: 999,
-                                border: "1px solid #ddd",
+                                ...chipStyle,
+                                fontWeight: 900,
                                 cursor: isSaving ? "not-allowed" : "pointer",
-                                background: "white",
-                                fontWeight: 700,
+                                opacity: isSaving ? 0.7 : 1,
                               }}
                               title="Removes steps from the DB (PATCH steps:null)"
                             >
@@ -381,13 +430,13 @@ export default function Home() {
                               style={{
                                 margin: "10px 0 0 0",
                                 paddingLeft: 18,
-                                color: "#333",
+                                color: "var(--foreground)",
                                 fontSize: 14,
                                 lineHeight: 1.5,
                               }}
                             >
                               {(task.steps ?? []).slice(0, 10).map((s, i) => (
-                                <li key={i} style={{ marginBottom: 6 }}>
+                                <li key={i} style={{ marginBottom: 6, color: "var(--muted)" }}>
                                   {s}
                                 </li>
                               ))}
@@ -396,7 +445,7 @@ export default function Home() {
                         </div>
                       )}
 
-                      <div style={{ fontSize: 12, color: "#777", marginTop: 10 }}>
+                      <div style={{ fontSize: 12, color: "var(--muted2)", marginTop: 10 }}>
                         {new Date(task.created_at).toLocaleString()}
                       </div>
                     </div>
@@ -411,9 +460,7 @@ export default function Home() {
                         style={{
                           padding: "10px 12px",
                           borderRadius: 12,
-                          border: "1px solid #ddd",
-                          cursor: "pointer",
-                          background: "white",
+                          ...buttonStyle,
                         }}
                       >
                         Edit
@@ -427,10 +474,10 @@ export default function Home() {
                           style={{
                             padding: "10px 12px",
                             borderRadius: 12,
-                            border: "1px solid #ddd",
+                            fontWeight: 900,
+                            ...buttonStyle,
                             cursor: isSaving ? "not-allowed" : "pointer",
-                            fontWeight: 700,
-                            background: "white",
+                            opacity: isSaving ? 0.7 : 1,
                           }}
                         >
                           {isSaving ? "Saving…" : "Save"}
@@ -442,9 +489,7 @@ export default function Home() {
                           style={{
                             padding: "10px 12px",
                             borderRadius: 12,
-                            border: "1px solid #ddd",
-                            cursor: "pointer",
-                            background: "white",
+                            ...buttonStyle,
                           }}
                         >
                           Cancel
@@ -457,6 +502,144 @@ export default function Home() {
             })}
           </ul>
         )}
+      </div>
+
+      {/* --- Floating button + Side Drawer: WhatsApp Simulator --- */}
+      <button
+        type="button"
+        onClick={() => setChatOpen((v) => !v)}
+        style={{
+          position: "fixed",
+          right: 18,
+          bottom: 18,
+          padding: "12px 14px",
+          borderRadius: 999,
+          ...buttonStyle,
+          fontWeight: 900,
+          boxShadow: "var(--shadow)",
+          zIndex: 50,
+        }}
+        title="Open WhatsApp simulator"
+      >
+        {chatOpen ? "Close" : "WhatsApp"}
+      </button>
+
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          height: "100vh",
+          width: 380,
+          maxWidth: "90vw",
+          background: "var(--card)",
+          color: "var(--foreground)",
+          borderLeft: "1px solid var(--border)",
+          boxShadow: "var(--shadow)",
+          transform: chatOpen ? "translateX(0)" : "translateX(110%)",
+          transition: "transform 200ms ease",
+          zIndex: 49,
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 900 }}>WhatsApp Simulator</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+              Calls <code>/api/inbox</code>. Triggers only with <b>#to-do</b> / <b>#todo</b>.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setChatOpen(false)}
+            style={{
+              ...buttonStyle,
+              borderRadius: 10,
+              padding: "8px 10px",
+              fontWeight: 900,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--muted)",
+            border: "1px solid var(--border)",
+            background: "var(--chip)",
+            padding: "8px 10px",
+            borderRadius: 12,
+          }}
+        >
+          <div style={{ fontWeight: 900, marginBottom: 4, color: "var(--foreground)" }}>
+            From (user_identifier)
+          </div>
+          <div style={{ wordBreak: "break-word" }}>{userIdentifier.trim() || "(empty)"}</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={chatMessage}
+            onChange={(e) => setChatMessage(e.target.value)}
+            placeholder="#to-do comprar leche"
+            style={{ flex: 1, padding: 12, borderRadius: 12, ...inputStyle }}
+          />
+          <button
+            type="button"
+            onClick={sendChat}
+            disabled={!chatMessage.trim() || !canLoad || sendingChat}
+            style={{
+              padding: "12px 14px",
+              borderRadius: 12,
+              fontWeight: 900,
+              ...buttonStyle,
+              cursor: !chatMessage.trim() || !canLoad || sendingChat ? "not-allowed" : "pointer",
+              opacity: !chatMessage.trim() || !canLoad || sendingChat ? 0.7 : 1,
+            }}
+          >
+            {sendingChat ? "…" : "Send"}
+          </button>
+        </div>
+
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+          Tip: try <code>#to-do pay rent</code> to create a task.
+        </div>
+
+        <div style={{ flex: 1, overflow: "auto" }}>
+          {chatReply ? (
+            <pre
+              style={{
+                whiteSpace: "pre-wrap",
+                margin: 0,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid var(--border)",
+                background: "var(--chip)",
+                color: "var(--foreground)",
+                fontSize: 12,
+              }}
+            >
+              {chatReply}
+            </pre>
+          ) : (
+            <div
+              style={{
+                border: "1px dashed var(--border)",
+                borderRadius: 12,
+                padding: 12,
+                color: "var(--muted2)",
+                fontSize: 12,
+              }}
+            >
+              No messages yet.
+            </div>
+          )}
+        </div>
       </div>
     </main>
   );
